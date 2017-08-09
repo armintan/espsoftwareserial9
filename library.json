@@ -1,0 +1,15 @@
+{
+    "name": "EspSoftwareSerial9",
+    "version": "1.0",
+    "keywords": [
+      "serial", "io", "softwareserial9"
+    ],
+    "description": "9-bit software serial for ESP8266, derived from P. Lerups EspSoftwareSerial library",
+    "repository":
+    {
+        "type": "git",
+        "url": "git@github.com:armintan/espsoftwareserial9.git"
+    },
+    "frameworks": "arduino",
+    "platforms": "espressif8266"
+}
