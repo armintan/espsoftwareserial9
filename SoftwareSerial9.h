@@ -38,12 +38,15 @@ public:
    SoftwareSerial9(int receivePin, int transmitPin, bool inverse_logic = false, unsigned int buffSize = 64);
    ~SoftwareSerial9();
 
-   void begin(long speed);
-   long baudRate();
-   void setTransmitEnablePin(int transmitEnablePin);
+  void begin(long speed);
+  long baudRate();
+  // Transmit control pin
+  void setTransmitEnablePin(int transmitEnablePin);
+  // Enable or disable interrupts during tx
+  void enableIntTx(bool on);
 
-   bool overflow();
-   int peek();
+  bool overflow();
+  int peek();
 
    virtual size_t write(uint8_t byte);
    virtual size_t write9(uint16_t word);
@@ -53,38 +56,40 @@ public:
    virtual void flush();
    operator bool() {return m_rxValid || m_txValid;}
 
-   // Disable or enable interrupts on the rx pin
-   void enableRx(bool on);
+  // Disable or enable interrupts on the rx pin
+  void enableRx(bool on);
+  // One wire control
+  void enableTx(bool on);
 
-   void rxRead();
+  void rxRead();
 
-   // AVR compatibility methods
-   bool listen() { enableRx(true); return true; }
-   void end() { stopListening(); }
-   bool isListening() { return m_rxEnabled; }
-   bool stopListening() { enableRx(false); return true; }
+  // AVR compatibility methods
+  bool listen() { enableRx(true); return true; }
+  void end() { stopListening(); }
+  bool isListening() { return m_rxEnabled; }
+  bool stopListening() { enableRx(false); return true; }
 
-   using Print::write;
+  using Print::write;
 
 private:
-   bool isValidGPIOpin(int pin);
+  bool isValidGPIOpin(int pin);
 
-   // Member variables
-   volatile int m_rxPin, m_txPin;
-   int m_txEnablePin;
-   bool m_rxValid, m_rxEnabled;
-   bool m_txValid, m_txEnableValid;
-   bool m_invert;
-   bool m_overflow;
-   unsigned long m_bitTime;
-   unsigned int m_inPos, m_outPos;
-   int m_buffSize;
-   uint16_t *m_buffer;
-
+  // Member variables
+  bool m_oneWire;
+  int m_rxPin, m_txPin, m_txEnablePin;
+  bool m_rxValid, m_rxEnabled;
+  bool m_txValid, m_txEnableValid;
+  bool m_invert;
+  bool m_overflow;
+  unsigned long m_bitTime;
+  bool m_intTxEnabled;
+  unsigned int m_inPos, m_outPos;
+  int m_buffSize;
+  uint16_t *m_buffer;
+  
 };
 
 // If only one tx or rx wanted then use this as parameter for the unused pin
 #define SW_SERIAL_UNUSED_PIN -1
-
 
 #endif

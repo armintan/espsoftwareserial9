@@ -62,11 +62,12 @@ static void (*ISRList[MAX_PIN+1])() = {
       NULL,
       sws_isr_12,
       sws_isr_13,
-	  sws_isr_14,
+      sws_isr_14,
       sws_isr_15
 };
 
 SoftwareSerial9::SoftwareSerial9(int receivePin, int transmitPin, bool inverse_logic, unsigned int buffSize) {
+   m_oneWire = (receivePin == transmitPin);
    m_rxValid = m_txValid = m_txEnableValid = false;
    m_buffer = NULL;
    m_invert = inverse_logic;
@@ -81,14 +82,15 @@ SoftwareSerial9::SoftwareSerial9(int receivePin, int transmitPin, bool inverse_l
          m_inPos = m_outPos = 0;
          pinMode(m_rxPin, INPUT);
          ObjList[m_rxPin] = this;
-         enableRx(true);
       }
    }
-   if (isValidGPIOpin(transmitPin)) {
+   if (isValidGPIOpin(transmitPin) || (!m_oneWire && (transmitPin == 16))) {
       m_txValid = true;
       m_txPin = transmitPin;
-      pinMode(m_txPin, OUTPUT);
-      digitalWrite(m_txPin, !m_invert);
+      if (!m_oneWire) {
+        pinMode(m_txPin, OUTPUT);
+        digitalWrite(m_txPin, !m_invert);
+      }
    }
    // Default speed
    begin(9600);
@@ -107,25 +109,46 @@ bool SoftwareSerial9::isValidGPIOpin(int pin) {
 }
 
 void SoftwareSerial9::begin(long speed) {
-	// Use getCycleCount() loop to get as exact timing as possible
-	m_bitTime = ESP.getCpuFreqMHz()*1000000/speed;
+   // Use getCycleCount() loop to get as exact timing as possible
+   m_bitTime = F_CPU/speed;
+   // By default enable interrupt during tx only for low speed
+   m_intTxEnabled = speed < 9600;
 
-	if (!m_rxEnabled)
-		enableRx(true);
+  if (!m_rxEnabled)
+    enableRx(true);
 }
 
 long SoftwareSerial9::baudRate() {
-   return ESP.getCpuFreqMHz()*1000000/m_bitTime;
+  return F_CPU/m_bitTime;
 }
 
 void SoftwareSerial9::setTransmitEnablePin(int transmitEnablePin) {
   if (isValidGPIOpin(transmitEnablePin)) {
-     m_txEnableValid = true;
-     m_txEnablePin = transmitEnablePin;
-     pinMode(m_txEnablePin, OUTPUT);
-     digitalWrite(m_txEnablePin, LOW);
+    m_txEnableValid = true;
+    m_txEnablePin = transmitEnablePin;
+    pinMode(m_txEnablePin, OUTPUT);
+    digitalWrite(m_txEnablePin, LOW);
   } else {
-     m_txEnableValid = false;
+    m_txEnableValid = false;
+  }
+}
+
+void SoftwareSerial9::enableIntTx(bool on) {
+  m_intTxEnabled = on;
+}
+
+void SoftwareSerial9::enableTx(bool on) {
+  if (m_oneWire && m_txValid) {
+    if (on) {
+      enableRx(false);
+      digitalWrite(m_txPin, !m_invert);
+      pinMode(m_rxPin, OUTPUT);
+    } else {
+      digitalWrite(m_txPin, !m_invert);
+      pinMode(m_rxPin, INPUT);
+      enableRx(true);
+    }
+    delay(1); // it's important to have a delay after switching
   }
 }
 
@@ -153,18 +176,19 @@ int SoftwareSerial9::available() {
    return avail;
 }
 
-#define WAIT { while (ESP.getCycleCount()-start < wait); wait += m_bitTime; }
+#define WAIT { while (ESP.getCycleCount()-start < wait) if (m_intTxEnabled) optimistic_yield(1); wait += m_bitTime; }
 
 size_t SoftwareSerial9::write(uint8_t b) {
-   return write9(b);
+	return write9(b);
 }
 
 size_t SoftwareSerial9::write9(uint16_t b) {
    if (!m_txValid) return 0;
 
    if (m_invert) b = ~b;
-   // Disable interrupts in order to get a clean transmit
-   cli();
+   if (!m_intTxEnabled)
+     // Disable interrupts in order to get a clean transmit
+     cli();
    if (m_txEnableValid) digitalWrite(m_txEnablePin, HIGH);
    unsigned long wait = m_bitTime;
    digitalWrite(m_txPin, HIGH);
@@ -181,8 +205,9 @@ size_t SoftwareSerial9::write9(uint16_t b) {
    digitalWrite(m_txPin, HIGH);
    WAIT;
    if (m_txEnableValid) digitalWrite(m_txEnablePin, LOW);
-   sei();
-   return 1;
+   if (!m_intTxEnabled)
+    sei();
+  return 1;
 }
 
 void SoftwareSerial9::flush() {
@@ -216,7 +241,6 @@ void ICACHE_RAM_ATTR SoftwareSerial9::rxRead() {
    // Stop bit
    WAIT;
    // Store the received value in the buffer unless we have an overflow
-
    int next = (m_inPos+1) % m_buffSize;
    if (next != m_outPos) {
       m_buffer[m_inPos] = rec;
@@ -228,4 +252,3 @@ void ICACHE_RAM_ATTR SoftwareSerial9::rxRead() {
    // it gets set even when interrupts are disabled
    GPIO_REG_WRITE(GPIO_STATUS_W1TC_ADDRESS, 1 << m_rxPin);
 }
-
